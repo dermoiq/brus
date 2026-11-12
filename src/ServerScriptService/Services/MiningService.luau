@@ -1,8 +1,10 @@
 --!strict
 -- Server-authoritative mining. The client only says "I swung at this node"; the server checks the node,
--- zone access, reach, held tool and swing cooldown, then decides the reward (including crits).
+-- zone access, reach, held tool and swing cooldown, then decides the reward (including crits and perks).
+-- Auto-Mine (game pass) runs through the exact same checks.
 
 local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
@@ -11,6 +13,7 @@ local Shared = ReplicatedStorage.Shared
 local Formulas = require(Shared.Formulas)
 local Progression = require(Shared.Config.Progression)
 local Signal = require(Shared.Signal)
+local Types = require(Shared.Types)
 local ZoneUtil = require(Shared.ZoneUtil)
 local Zones = require(Shared.Config.Zones)
 
@@ -20,9 +23,10 @@ local RateLimiter = require(script.Parent.RateLimiter)
 
 local Remotes = ReplicatedStorage.Remotes
 
--- Accept swings slightly faster than the cooldown to absorb network jitter.
+-- Accept manual swings slightly faster than the cooldown to absorb network jitter.
 local COOLDOWN_TOLERANCE = 0.8
 local REACH_TOLERANCE = 4
+local AUTO_MINE_TICK = 0.05
 
 local MiningService = {
 	Mined = Signal.new(), -- (player, gems)
@@ -65,52 +69,54 @@ local function breakNode(node: Instance, zone: Zones.ZoneDef)
 	end)
 end
 
-local function onMineHit(player: Player, node: unknown)
-	if not hitLimiter:Check(player) then
-		return
-	end
-	if typeof(node) ~= "Instance" or not CollectionService:HasTag(node, ZoneUtil.NodeTag) then
-		return
-	end
-	if not node:IsDescendantOf(Workspace) then
-		return
-	end
-
-	local data = DataService.Get(player)
+local function getRoot(player: Player): (Model?, BasePart?)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if not data or not character or not humanoid or humanoid.Health <= 0 or not root or not root:IsA("BasePart") then
-		return
+	if not character or not humanoid or humanoid.Health <= 0 or not root or not root:IsA("BasePart") then
+		return nil, nil
+	end
+	return character, root
+end
+
+local function tryMine(player: Player, node: Instance, cooldownTolerance: number): boolean
+	if not CollectionService:HasTag(node, ZoneUtil.NodeTag) or not node:IsDescendantOf(Workspace) then
+		return false
+	end
+	local data = DataService.Get(player)
+	local character, root = getRoot(player)
+	if not data or not character or not root then
+		return false
 	end
 
+	local perks = Formulas.Perks(player)
 	local tool = character:FindFirstChildOfClass("Tool")
-	if not tool or tool:GetAttribute("ItemId") ~= data.EquippedItem then
-		return
+	if not tool or tool:GetAttribute("ItemId") ~= Formulas.EquippedItem(data, perks).Id then
+		return false
 	end
 
 	local zoneId = ZoneUtil.GetZoneId(node)
 	local zone = zoneId and Zones.ById[zoneId]
 	if not zone or not data.UnlockedZones[zone.Id] then
-		return
+		return false
 	end
 
 	local position = ZoneUtil.GetPosition(node)
 	local reach = Progression.MineReach + nodeRadius(node) + REACH_TOLERANCE
 	if not position or (position - root.Position).Magnitude > reach then
-		return
+		return false
 	end
 
 	local now = os.clock()
-	if now - (lastHit[player] or 0) < Formulas.Cooldown(data) * COOLDOWN_TOLERANCE then
-		return
+	if now - (lastHit[player] or 0) < Formulas.Cooldown(data) * cooldownTolerance then
+		return false
 	end
 	lastHit[player] = now
 
-	local reward = Formulas.HitReward(data, zone)
-	local crit = random:NextNumber() < Formulas.CritChance(data)
+	local reward = Formulas.HitReward(data, zone, perks)
+	local crit = random:NextNumber() < Formulas.CritChance(data, perks)
 	if crit then
-		reward *= Progression.CritMultiplier
+		reward = math.floor(reward * Formulas.CritMultiplier(perks) + 0.5)
 	end
 
 	ProgressionService.AwardGems(player, reward, zone.XPPerHit)
@@ -124,6 +130,45 @@ local function onMineHit(player: Player, node: unknown)
 	else
 		node:SetAttribute("HitsLeft", remaining)
 	end
+	return true
+end
+
+local function onMineHit(player: Player, node: unknown)
+	if not hitLimiter:Check(player) or typeof(node) ~= "Instance" then
+		return
+	end
+	tryMine(player, node, COOLDOWN_TOLERANCE)
+end
+
+local function nearestMineableNode(data: Types.PlayerData, origin: Vector3): Instance?
+	local best, bestDistance = nil, math.huge
+	for _, node in CollectionService:GetTagged(ZoneUtil.NodeTag) do
+		local zoneId = ZoneUtil.GetZoneId(node)
+		local position = ZoneUtil.GetPosition(node)
+		if position and zoneId and data.UnlockedZones[zoneId] and node:IsDescendantOf(Workspace) then
+			local distance = (position - origin).Magnitude
+			if distance < bestDistance and distance <= Progression.MineReach + nodeRadius(node) then
+				best, bestDistance = node, distance
+			end
+		end
+	end
+	return best
+end
+
+local function autoMineTick()
+	local now = os.clock()
+	for _, player in Players:GetPlayers() do
+		local data = DataService.Get(player)
+		if data and data.Settings.AutoMine and Formulas.Perks(player).AutoMine then
+			local _, root = getRoot(player)
+			if root and now - (lastHit[player] or 0) >= Formulas.Cooldown(data) then
+				local node = nearestMineableNode(data, root.Position)
+				if node then
+					tryMine(player, node, 1)
+				end
+			end
+		end
+	end
 end
 
 function MiningService.Start()
@@ -134,8 +179,15 @@ function MiningService.Start()
 
 	Remotes.MineHit.OnServerEvent:Connect(onMineHit)
 
-	game:GetService("Players").PlayerRemoving:Connect(function(player)
+	Players.PlayerRemoving:Connect(function(player)
 		lastHit[player] = nil
+	end)
+
+	task.spawn(function()
+		while true do
+			task.wait(AUTO_MINE_TICK)
+			autoMineTick()
+		end
 	end)
 end
 
