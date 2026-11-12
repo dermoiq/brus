@@ -127,6 +127,14 @@ local function shakeCamera(strength: number)
 	end)
 end
 
+-- The default Animate script plays the tool slash when it sees this value.
+local function playSwing(tool: Tool)
+	local animation = Instance.new("StringValue")
+	animation.Name = "toolanim"
+	animation.Value = "Slash"
+	animation.Parent = tool
+end
+
 local function swing()
 	local data = DataController.Get()
 	local character, root, tool = getCharacterParts()
@@ -138,12 +146,7 @@ local function swing()
 		return
 	end
 	lastSwing = now
-
-	-- The default Animate script plays the tool slash when it sees this value.
-	local animation = Instance.new("StringValue")
-	animation.Name = "toolanim"
-	animation.Value = "Slash"
-	animation.Parent = tool
+	playSwing(tool)
 
 	local node = pickTarget(character, root)
 	if node then
@@ -223,6 +226,12 @@ function MiningController.Start()
 			end
 			local crit = c == true
 			local color = zoneColor(ZoneUtil.GetZoneId(a))
+			-- Auto-Mine hits arrive without a local click; still show the swing.
+			local _, _, tool = getCharacterParts()
+			if tool and os.clock() - lastSwing > 0.25 then
+				playSwing(tool)
+				flash(a)
+			end
 			burst(position + Vector3.new(0, 2, 0), color, if crit then 24 else 10)
 			HudController.Popup(
 				position,

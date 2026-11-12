@@ -5,16 +5,18 @@
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Services = ServerScriptService.Services
-local PrototypeMap = require(ServerScriptService.World.PrototypeMap)
+local WorldBuilder = require(ServerScriptService.World.WorldBuilder)
 
-PrototypeMap.BuildIfEmpty()
+WorldBuilder.BuildIfEmpty()
 
 local startOrder: { { Start: () -> () } } = {
+	require(Services.MonetizationService),
 	require(Services.EquipService),
 	require(Services.ProgressionService),
 	require(Services.ZoneService),
 	require(Services.MiningService),
 	require(Services.TutorialService),
+	require(Services.PortalService),
 	require(Services.DataService),
 }
 

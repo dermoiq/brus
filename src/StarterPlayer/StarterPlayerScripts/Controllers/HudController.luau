@@ -1,7 +1,8 @@
 --!strict
--- Always-on HUD: gems (animated count-up), multiplier, level/XP bar, rebirths, Shop/Rebirth buttons,
--- toasts, zone banners and floating "+gems" popups.
+-- Always-on HUD: gems (animated count-up), multiplier + boost timer, level/XP bar, rebirth rank,
+-- Shop/Rebirth/Store buttons, toasts, zone banners and floating "+gems" popups.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
@@ -18,10 +19,12 @@ local UIRegistry = require(script.Parent.Parent.UI.UIRegistry)
 
 local Remotes = ReplicatedStorage.Remotes
 local Colors = UIKit.Colors
+local player = Players.LocalPlayer
 
 local HudController = {
 	ShopPressed = Signal.new(),
 	RebirthPressed = Signal.new(),
+	StorePressed = Signal.new(),
 }
 
 local toastHolder: Frame
@@ -134,7 +137,7 @@ local function build()
 		Name = "LeftColumn",
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 16, 0.5, 0),
-		Size = UDim2.fromOffset(260, 250),
+		Size = UDim2.fromOffset(260, 318),
 		BackgroundTransparency = 1,
 		Parent = gui,
 	})
@@ -189,6 +192,7 @@ local function build()
 		Position = UDim2.fromOffset(0, 130),
 		TextColor3 = Colors.Pink,
 		Font = UIKit.Fonts.Body,
+		RichText = true,
 		Parent = stats,
 	})
 
@@ -216,6 +220,17 @@ local function build()
 		HudController.RebirthPressed:Fire()
 	end)
 	UIRegistry.Register("ShopButton", shopButton)
+
+	local storeButton = UIKit.Button({
+		Name = "StoreButton",
+		Size = UDim2.fromOffset(260, 52),
+		LayoutOrder = 3,
+		Parent = column,
+	}, "🛍 ROBUX STORE", Color3.fromRGB(0, 176, 111))
+	storeButton.Activated:Connect(function()
+		HudController.StorePressed:Fire()
+	end)
+	UIRegistry.Register("StoreButton", storeButton)
 
 	toastHolder = UIKit.Create("Frame", {
 		Name = "Toasts",
@@ -251,6 +266,16 @@ local function build()
 	end
 end
 
+local function renderMultiplier(data: Types.PlayerData)
+	local now = Workspace:GetServerTimeNow()
+	local text = Format.Multiplier(Formulas.Multiplier(data, Formulas.Perks(player), now)) .. " Gems"
+	local remaining = math.floor(data.Boosts.GemsUntil - now)
+	if remaining > 0 then
+		text ..= string.format("  ⚡ %d:%02d", remaining // 60, remaining % 60)
+	end
+	multiplierLabel.Text = text
+end
+
 local function render(data: Types.PlayerData)
 	if lastGems and data.Gems > lastGems then
 		UIKit.Pop(gemsLabel, 1.12)
@@ -258,11 +283,12 @@ local function render(data: Types.PlayerData)
 	lastGems = data.Gems
 	TweenService:Create(gemCounter, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { Value = data.Gems }):Play()
 
-	multiplierLabel.Text = Format.Multiplier(Formulas.Multiplier(data)) .. " Gems"
+	renderMultiplier(data)
 	levelLabel.Text = `Level {data.Level}`
 	local progress = math.clamp(data.XP / Formulas.XPToNext(data.Level), 0, 1)
 	TweenService:Create(xpFill, TweenInfo.new(0.25), { Size = UDim2.fromScale(progress, 1) }):Play()
-	rebirthLabel.Text = `Rebirths: {data.Rebirths}`
+	local rank = Formulas.RebirthRank(data.Rebirths)
+	rebirthLabel.Text = `Rebirths: {data.Rebirths}  •  <font color="#{rank.Color:ToHex()}">{rank.Name}</font>`
 end
 
 function HudController.Start()
@@ -272,12 +298,35 @@ function HudController.Start()
 		gemsLabel.Text = Format.Abbreviate(value)
 	end)
 	DataController.Observe(render)
+	-- Pass ownership (2x Gems, VIP) changes the multiplier without a data change.
+	player.AttributeChanged:Connect(function()
+		local data = DataController.Get()
+		if data then
+			renderMultiplier(data)
+		end
+	end)
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			local data = DataController.Get()
+			if data and data.Boosts.GemsUntil > Workspace:GetServerTimeNow() - 2 then
+				renderMultiplier(data)
+			end
+		end
+	end)
 
 	Remotes.Notify.OnClientEvent:Connect(function(kind: string, payload: any)
 		if kind == "LevelUp" then
 			HudController.Toast(`⭐ Level {payload}! +2% Gems`, Colors.Gold)
 		elseif kind == "AutoUpgrade" then
 			HudController.Toast(`🤖 {payload}`, Colors.Blue)
+		elseif kind == "AutoRebirth" or kind == "Unlock" then
+			HudController.Toast(tostring(payload), Colors.Pink)
+		elseif kind == "RankUp" then
+			HudController.Banner(`RANK UP: {payload}!`)
+			HudController.Toast(`🏆 New rank: {payload}`, Colors.Gold)
+		elseif kind == "Purchase" then
+			HudController.Toast(tostring(payload), Colors.Gold)
 		elseif kind == "TutorialComplete" then
 			HudController.Toast(`🎉 Tutorial complete! +{payload} Gems`, Colors.Green)
 		elseif kind == "Toast" and type(payload) == "string" then
