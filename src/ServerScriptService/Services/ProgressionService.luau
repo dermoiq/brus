@@ -1,15 +1,18 @@
 --!strict
--- Gems/XP/levels, every purchase (upgrades, pickaxes, zones, rebirth), Auto-Upgrade and leaderstats.
--- All prices are computed here from shared config; the client only ever says *what* it wants to buy.
+-- Gems/XP/levels, every Gem purchase (upgrades, pickaxes, zones), infinite rebirths, Auto-Upgrade,
+-- Auto-Rebirth and leaderstats. Prices are computed here from shared config; the client only ever says
+-- *what* it wants to buy.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage.Shared
+local Auras = require(Shared.Config.Auras)
 local Format = require(Shared.Format)
 local Formulas = require(Shared.Formulas)
 local Items = require(Shared.Config.Items)
 local Progression = require(Shared.Config.Progression)
+local Rebirths = require(Shared.Config.Rebirths)
 local Signal = require(Shared.Signal)
 local Types = require(Shared.Types)
 local Upgrades = require(Shared.Config.Upgrades)
@@ -23,12 +26,18 @@ local Remotes = ReplicatedStorage.Remotes
 
 type PlayerData = Types.PlayerData
 
+local SETTINGS: { [string]: boolean } = { AutoUpgrade = true, AutoRebirth = true, AutoMine = true }
+
 local ProgressionService = {
 	Purchased = Signal.new(), -- (player, kind, id)
 }
 
 local purchaseLimiter = RateLimiter.new(6, 10)
-local settingLimiter = RateLimiter.new(2, 4)
+local settingLimiter = RateLimiter.new(3, 6)
+
+local function notify(player: Player, kind: string, payload: any)
+	Remotes.Notify:FireClient(player, kind, payload)
+end
 
 function ProgressionService.AwardGems(player: Player, amount: number, xp: number)
 	local newLevel: number? = nil
@@ -45,7 +54,7 @@ function ProgressionService.AwardGems(player: Player, amount: number, xp: number
 		end
 	end)
 	if newLevel then
-		Remotes.Notify:FireClient(player, "LevelUp", newLevel)
+		notify(player, "LevelUp", newLevel)
 	end
 end
 
@@ -74,6 +83,9 @@ local function buyItem(player: Player, data: PlayerData, id: string): (boolean, 
 	if not def then
 		return false, "Unknown item"
 	end
+	if def.RebirthRequired or def.Gamepass then
+		return false, "This pickaxe can't be bought with Gems"
+	end
 	if data.OwnedItems[id] then
 		return false, "Already owned"
 	end
@@ -84,7 +96,7 @@ local function buyItem(player: Player, data: PlayerData, id: string): (boolean, 
 		d.Gems -= def.Price
 		d.OwnedItems[id] = true
 	end)
-	EquipService.Equip(player, id)
+	EquipService.Equip(player, "Item", id)
 	return true, `Unlocked the {def.Name}!`
 end
 
@@ -110,17 +122,53 @@ local function unlockZone(player: Player, data: PlayerData, id: string): (boolea
 	return true, `{def.Name} unlocked!`
 end
 
-local function rebirth(player: Player, data: PlayerData): (boolean, string)
+local function announceUnlocks(player: Player, before: number, after: number)
+	local oldRank, oldIndex = Formulas.RebirthRank(before)
+	local newRank, newIndex = Formulas.RebirthRank(after)
+	if newIndex > oldIndex and newRank ~= oldRank then
+		notify(player, "RankUp", newRank.Name)
+	end
+	for _, def in Items.List do
+		local need = def.RebirthRequired
+		if need and need > before and need <= after then
+			notify(player, "Unlock", `New pickaxe: {def.Name}!`)
+		end
+	end
+	for _, def in Auras.List do
+		local need = def.RebirthRequired
+		if need and need > before and need <= after then
+			notify(player, "Unlock", `New aura: {def.Name}!`)
+		end
+	end
+end
+
+-- Resets Gems, upgrades and shop pickaxes; keeps zones, level, exclusive pickaxes and auras.
+-- `free` skips the cost (Instant Rebirth product).
+function ProgressionService.Rebirth(player: Player, free: boolean): (boolean, string)
+	local data = DataService.Get(player)
+	if not data then
+		return false, "Your data is still loading"
+	end
 	local cost = Formulas.RebirthCost(data.Rebirths)
-	if data.Gems < cost then
+	if not free and data.Gems < cost then
 		return false, `Need {Format.Abbreviate(cost)} Gems to rebirth`
 	end
+
+	local perks = Formulas.Perks(player)
+	local before = data.Rebirths
 	DataService.Update(player, function(d)
 		d.Gems = 0
 		d.Upgrades = {}
+		d.OwnedItems = { [Items.Default] = true }
 		d.Rebirths += 1
+		d.EquippedItem = Formulas.BestOwnedItem(d, perks)
 	end)
-	return true, `Rebirth #{data.Rebirths}! Gems are now boosted forever.`
+	EquipService.Refresh(player)
+	announceUnlocks(player, before, before + 1)
+	ProgressionService.Purchased:Fire(player, "Rebirth", nil)
+
+	local multiplier = Format.Multiplier(Formulas.RebirthMultiplier(before + 1))
+	return true, `🔁 Rebirth #{before + 1}! All Gems are now {multiplier} forever.`
 end
 
 local function handlePurchase(player: Player, kind: unknown, id: unknown): (boolean, string)
@@ -135,12 +183,14 @@ local function handlePurchase(player: Player, kind: unknown, id: unknown): (bool
 		return false, "Your data is still loading"
 	end
 
-	local ok, message
 	if kind == "Rebirth" then
-		ok, message = rebirth(player, data)
+		return ProgressionService.Rebirth(player, false)
 	elseif typeof(id) ~= "string" then
 		return false, "Invalid request"
-	elseif kind == "Upgrade" then
+	end
+
+	local ok, message
+	if kind == "Upgrade" then
 		ok, message = buyUpgrade(player, data, id)
 	elseif kind == "Item" then
 		ok, message = buyItem(player, data, id)
@@ -156,18 +206,64 @@ local function handlePurchase(player: Player, kind: unknown, id: unknown): (bool
 	return ok, message
 end
 
-local function cheapestUpgrade(data: PlayerData): (string?, number)
-	local bestId, bestCost = nil, math.huge
+-- Cheapest useful purchase: the next stat upgrade level, or the next stronger shop pickaxe.
+local function cheapestAutoPurchase(data: PlayerData, perks: Types.Perks): (string?, string?, number)
+	local bestKind, bestId, bestCost = nil, nil, math.huge
 	for _, def in Upgrades.List do
 		local level = Formulas.UpgradeLevel(data, def.Id)
 		if level < def.MaxLevel then
 			local cost = Formulas.UpgradeCost(def.Id, level)
 			if cost < bestCost then
-				bestId, bestCost = def.Id, cost
+				bestKind, bestId, bestCost = "Upgrade", def.Id, cost
 			end
 		end
 	end
-	return bestId, bestCost
+	local power = Formulas.Power(data, perks)
+	for _, def in Items.List do
+		local forSale = not def.RebirthRequired and not def.Gamepass
+		if forSale and not data.OwnedItems[def.Id] and def.Power > power then
+			if def.Price < bestCost then
+				bestKind, bestId, bestCost = "Item", def.Id, def.Price
+			end
+			break
+		end
+	end
+	return bestKind, bestId, bestCost
+end
+
+local function runAutomation(player: Player)
+	local data = DataService.Get(player)
+	if not data then
+		return
+	end
+
+	if
+		data.Settings.AutoRebirth
+		and data.Rebirths >= Rebirths.AutoRebirthUnlock
+		and data.Gems >= Formulas.RebirthCost(data.Rebirths)
+	then
+		local ok, message = ProgressionService.Rebirth(player, false)
+		if ok then
+			notify(player, "AutoRebirth", message)
+		end
+		return
+	end
+
+	if data.Settings.AutoUpgrade then
+		local kind, id, cost = cheapestAutoPurchase(data, Formulas.Perks(player))
+		if kind and id and data.Gems >= cost then
+			local ok, message
+			if kind == "Upgrade" then
+				ok, message = buyUpgrade(player, data, id)
+			else
+				ok, message = buyItem(player, data, id)
+			end
+			if ok then
+				notify(player, "AutoUpgrade", message)
+				ProgressionService.Purchased:Fire(player, kind, id)
+			end
+		end
+	end
 end
 
 local function setupLeaderstats(player: Player, data: PlayerData)
@@ -184,18 +280,30 @@ local function setupLeaderstats(player: Player, data: PlayerData)
 	rebirths.Value = data.Rebirths
 	rebirths.Parent = folder
 
+	local rank = Instance.new("StringValue")
+	rank.Name = "Rank"
+	rank.Value = (Formulas.RebirthRank(data.Rebirths)).Name
+	rank.Parent = folder
+
 	folder.Parent = player
 end
 
 local function updateLeaderstats(player: Player, data: PlayerData)
 	local folder = player:FindFirstChild("leaderstats")
-	local gems = folder and folder:FindFirstChild("Gems")
-	local rebirths = folder and folder:FindFirstChild("Rebirths")
+	if not folder then
+		return
+	end
+	local gems = folder:FindFirstChild("Gems")
+	local rebirths = folder:FindFirstChild("Rebirths")
+	local rank = folder:FindFirstChild("Rank")
 	if gems and gems:IsA("StringValue") then
 		gems.Value = Format.Abbreviate(data.Gems)
 	end
 	if rebirths and rebirths:IsA("IntValue") then
 		rebirths.Value = data.Rebirths
+	end
+	if rank and rank:IsA("StringValue") then
+		rank.Value = (Formulas.RebirthRank(data.Rebirths)).Name
 	end
 end
 
@@ -203,35 +311,29 @@ function ProgressionService.Start()
 	Remotes.Purchase.OnServerInvoke = handlePurchase
 
 	Remotes.SetSetting.OnServerEvent:Connect(function(player, key, value)
-		if not settingLimiter:Check(player) then
+		if not settingLimiter:Check(player) or typeof(key) ~= "string" or typeof(value) ~= "boolean" then
 			return
 		end
-		if key == "AutoUpgrade" and typeof(value) == "boolean" then
-			DataService.Update(player, function(d)
-				d.Settings.AutoUpgrade = value
-			end)
+		local data = DataService.Get(player)
+		if not data or not SETTINGS[key] then
+			return
 		end
+		if key == "AutoRebirth" and value and data.Rebirths < Rebirths.AutoRebirthUnlock then
+			return
+		end
+		DataService.Update(player, function(d)
+			(d.Settings :: any)[key] = value
+		end)
 	end)
 
 	DataService.ProfileLoaded:Connect(setupLeaderstats)
 	DataService.Changed:Connect(updateLeaderstats)
 
-	-- Auto-Upgrade: buys the cheapest affordable stat upgrade. Gate it behind a game pass if desired.
 	task.spawn(function()
 		while true do
 			task.wait(Progression.AutoUpgradeInterval)
 			for _, player in Players:GetPlayers() do
-				local data = DataService.Get(player)
-				if data and data.Settings.AutoUpgrade then
-					local id, cost = cheapestUpgrade(data)
-					if id and data.Gems >= cost then
-						local ok, message = buyUpgrade(player, data, id)
-						if ok then
-							Remotes.Notify:FireClient(player, "AutoUpgrade", message)
-							ProgressionService.Purchased:Fire(player, "Upgrade", id)
-						end
-					end
-				end
+				runAutomation(player)
 			end
 		end
 	end)
