@@ -6,6 +6,9 @@ local Workspace = game:GetService("Workspace")
 local ZoneUtil = {
 	NodeTag = "CrystalNode",
 	GateTag = "ZoneGate",
+	-- Portal models carry attribute Zone = <zoneId> or "Lobby" and a ProximityPrompt descendant.
+	PortalTag = "Portal",
+	LobbyId = "Lobby",
 }
 
 -- A node/gate belongs to the zone named by its "Zone" attribute, or else to the Workspace.Zones.<ZoneId>
