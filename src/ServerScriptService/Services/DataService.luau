@@ -30,7 +30,8 @@ type Profile = {
 }
 
 local LOCK_EXPIRY = Progression.AutosaveInterval * 3
-local LOAD_ATTEMPTS = 5
+-- Studio has no competing servers, and an unpublished place can never load, so fail fast there.
+local LOAD_ATTEMPTS = if RunService:IsStudio() then 1 else 5
 local RETRY_DELAY = 4
 
 local DataService = {
@@ -107,7 +108,9 @@ local function loadAsync(player: Player): (boolean, PlayerData?)
 		elseif not ok then
 			warn(`[DataService] Load attempt {attempt} failed for {player.UserId}: {result}`)
 		end
-		task.wait(RETRY_DELAY)
+		if attempt < LOAD_ATTEMPTS then
+			task.wait(RETRY_DELAY)
+		end
 	end
 	return false, nil
 end
