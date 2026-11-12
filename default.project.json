@@ -1,0 +1,101 @@
+{
+  "name": "CrystalRush",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "Shared": {
+        "$path": "src/ReplicatedStorage/Shared"
+      },
+      "Remotes": {
+        "$className": "Folder",
+        "GetData": { "$className": "RemoteFunction" },
+        "DataSync": { "$className": "RemoteEvent" },
+        "Notify": { "$className": "RemoteEvent" },
+        "MineHit": { "$className": "RemoteEvent" },
+        "MineFeedback": { "$className": "UnreliableRemoteEvent" },
+        "Purchase": { "$className": "RemoteFunction" },
+        "Equip": { "$className": "RemoteEvent" },
+        "TutorialAction": { "$className": "RemoteEvent" },
+        "SetSetting": { "$className": "RemoteEvent" }
+      },
+      "Assets": {
+        "$className": "Folder",
+        "Items": { "$className": "Folder" }
+      }
+    },
+
+    "ServerScriptService": {
+      "$path": "src/ServerScriptService"
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "$path": "src/StarterPlayer/StarterPlayerScripts"
+      }
+    },
+
+    "Lighting": {
+      "$properties": {
+        "LightingStyle": "Realistic",
+        "PrioritizeLightingQuality": true,
+        "Brightness": 3,
+        "Ambient": [0.2431, 0.2275, 0.3216],
+        "OutdoorAmbient": [0.5255, 0.4784, 0.6196],
+        "ColorShift_Top": [1, 0.8706, 0.7216],
+        "ColorShift_Bottom": [0.2275, 0.1725, 0.3608],
+        "EnvironmentDiffuseScale": 1,
+        "EnvironmentSpecularScale": 1,
+        "ExposureCompensation": 0.1,
+        "GlobalShadows": true,
+        "ShadowSoftness": 0.2,
+        "ClockTime": 16.4,
+        "GeographicLatitude": 35
+      },
+      "Atmosphere": {
+        "$className": "Atmosphere",
+        "$properties": {
+          "Density": 0.3,
+          "Offset": 0.2,
+          "Color": [0.7765, 0.698, 1],
+          "Decay": [0.4078, 0.3294, 0.5882],
+          "Glare": 0.4,
+          "Haze": 1.5
+        }
+      },
+      "Bloom": {
+        "$className": "BloomEffect",
+        "$properties": {
+          "Intensity": 0.8,
+          "Size": 30,
+          "Threshold": 1.3
+        }
+      },
+      "SunRays": {
+        "$className": "SunRaysEffect",
+        "$properties": {
+          "Intensity": 0.06,
+          "Spread": 0.7
+        }
+      },
+      "ColorCorrection": {
+        "$className": "ColorCorrectionEffect",
+        "$properties": {
+          "Brightness": 0.02,
+          "Contrast": 0.12,
+          "Saturation": 0.2,
+          "TintColor": [1, 0.9647, 0.9255]
+        }
+      },
+      "DepthOfField": {
+        "$className": "DepthOfFieldEffect",
+        "$properties": {
+          "FarIntensity": 0.12,
+          "FocusDistance": 45,
+          "InFocusRadius": 70,
+          "NearIntensity": 0
+        }
+      }
+    }
+  }
+}
