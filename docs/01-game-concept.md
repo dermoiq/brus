@@ -53,21 +53,33 @@ The visual hook is **glowing crystals under cinematic lighting**. Every zone has
 ```
  Save up ─▶ Unlock next zone (new lighting, crystals worth 6–8x) ─▶ New pickaxe tier (new look + aura)
      ▲                                                                              │
-     └──────── Rebirth: reset Gems & upgrades, keep pickaxes/zones, +50% Gems forever ◀┘
+     └──── Rebirth: reset Gems, upgrades & shop picks; keep zones; multiply Gems forever ◀┘
 ```
 
 ### Content at launch (all defined in `src/ReplicatedStorage/Shared/Config`)
 
 | Zone | Unlock | Crystal value | Lighting mood |
 | --- | --- | --- | --- |
-| Sunlit Quarry | free | 4 | Golden hour, warm violet haze |
-| Glowshroom Grotto | 4K | 24 | Dusk, teal bioluminescence |
-| Frostfire Rift | 80K | 160 | Crisp blue daylight, glare |
-| Magma Forge | 1.6M | 1.2K | Smoky orange, heavy bloom |
-| Celestial Vault | 32M | 10K | Starry night, purple aurora |
+| Sunlit Quarry | free | 8 | Golden hour, warm violet haze |
+| Glowshroom Grotto | 5K | 60 | Dusk, teal bioluminescence |
+| Frostfire Rift | 1M | 500 | Crisp blue daylight, glare |
+| Magma Forge | 75M | 4.5K | Smoky orange, heavy bloom |
+| Celestial Vault | 5B | 40K | Starry night, purple aurora |
 
-Pickaxes: Rusty → Iron → Gilded → Amethyst → Glacier → Magma → Celestial (power 1 → 220). Each higher tier adds glow, a tier aura and walk speed.
-Upgrades: **Gem Multiplier** (+25%/lvl), **Swing Speed** (−4% cooldown/lvl), **Lucky Strike** (+2% crit chance for 5x).
+Shop pickaxes: Rusty → Iron (120) → Gilded (1.2K) → Amethyst (30K) → Glacier (250K) → Magma (8M) → Celestial (600M), power 1 → 420. Each tier has its own detailed model, aura and walk speed.
+Exclusive pickaxes: **Phoenix** (3 rebirths), **Void Reaver** (10), **Aurora** (25), **Singularity** (50) and the VIP **Royal Pick**.
+Upgrades: **Gem Multiplier** (+25%/lvl, from 15 Gems), **Swing Speed** (−3.5% cooldown/lvl), **Lucky Strike** (+2% crit chance for 5x).
+
+**Pacing targets (v2 economy):** first upgrade within 10 seconds, Iron Pick in under 30 seconds, Glowshroom Grotto in about 2–3 minutes, first rebirth around Frostfire Rift. Base swings are 0.3 s (down to about 0.1 s with upgrades).
+
+### Deep rebirth system
+
+- **Infinite rebirths.** Each one multiplies all Gems forever: `(1 + 0.5·r) × 1.1^r` (x1.65 at 1, x15.6 at 10, x146 at 25, x3,000+ at 50).
+- A rebirth resets Gems, stat upgrades and shop pickaxes. Zones, level, exclusive pickaxes and auras are kept, so AFK loops keep working.
+- **28 named ranks** (Novice → Stone → … → Diamond → … → Celestial → Ascendant → Eternal → Transcendent → Infinity) shown on the HUD and leaderboard.
+- **Rebirth rewards:** exclusive pickaxes at 3/10/25/50 rebirths and auras at 1/5/12/20/38/60.
+- **Auto-Rebirth** unlocks at 3 rebirths. Auto-Upgrade also buys the next shop pickaxe, so a player can idle productively.
+- Rebirth cost scales with the player's own multiplier, so every run stays meaningful at any depth. Tune it in `Config/Rebirths.luau`.
 
 ### The first 5 minutes (designed, then built into the tutorial)
 
@@ -87,9 +99,10 @@ Upgrades: **Gem Multiplier** (+25%/lvl), **Swing Speed** (−4% cooldown/lvl), *
 4. Global leaderboards (Total Gems, Rebirths) and a crystal "Index" collection book.
 5. Weekend events (2x luck, limited-time zone).
 
-### Monetization plan (ethical, non-pay-to-win at the start)
+### Monetization (implemented, see `Config/Monetization.luau`)
 
-- Game passes: **2x Gems**, **VIP** (chat tag + aura), **Auto-Upgrade** (the system already exists; gate it behind a pass), **+1 pet slot**.
-- Developer products: timed luck/gem boosts, gem packs scaled to the player's current zone.
-- Rewarded video ads for short boosts. Premium Payouts come from engagement time.
+- **Game passes:** **2x Gems**, **VIP** (Royal Pick, Royal Aura, [VIP] chat tag, +25% Gems), **Auto-Mine**, **Extra Luck** (+10% crit chance, crits pay 50% more).
+- **Developer products:** three gem packs that scale with the player's current income (10 min / 1 h / 4 h of mining), a stackable **2x Gems boost** (15 min), and **Instant Rebirth**.
+- Everything is optional and earnable without paying. Rebirth pickaxes beat the VIP pick, so paying speeds you up without capping free players.
+- Rewarded video ads for short boosts and Premium Payouts are good next additions.
 - If you add paid eggs, Roblox policy requires showing each item's odds before purchase.
