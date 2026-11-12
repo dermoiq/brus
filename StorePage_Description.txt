@@ -1,0 +1,50 @@
+CRYSTAL RUSH — STORE PAGE COPY
+==============================
+
+TITLE (copy into the experience name)
+-------------------------------------
+[UPD] Crystal Rush ⛏️💎 Mine & Rebirth
+
+Shorter alternative:
+Crystal Rush ⛏️💎 Mining Simulator
+
+
+TAGS / KEYWORDS
+---------------
+mining simulator, simulator, rebirth, idle, pickaxe, crystals, upgrades, islands, progression, RNG, incremental
+
+
+DESCRIPTION (copy everything between the lines)
+-----------------------------------------------
+⛏️ CRYSTAL RUSH 💎 Smash glowing crystals, climb five floating islands and rebirth forever!
+
+🌟 FEATURES
+• Mine crystals and watch your Gems pile up
+• Upgrade Gem Multiplier, Swing Speed and Lucky Strike
+• Unlock five floating islands, each with its own lighting mood
+• Collect 12 pickaxes, from Rusty to Singularity
+• Cosmetic auras to show off
+
+🔁 REBIRTH SYSTEM
+Rebirth to reset your Gems in exchange for a permanent multiplier. Rebirth as often as you like, climb 28 ranks, unlock exclusive pickaxes and auras, and turn on Auto-Rebirth to keep growing while you're away.
+
+🛍 OPTIONAL ROBUX STORE
+2x Gems, VIP, Auto-Mine, Extra Luck, gem packs and boosts. Everything can also be earned in-game.
+
+📜 UPDATE LOG
+v1.0: Launch. Five islands, 12 pickaxes, infinite rebirths, Robux Store.
+
+🎁 PROMO CODES
+No codes are active yet. Replace this line with your codes, e.g. CODE: reward (expires DATE).
+-----------------------------------------------
+
+
+PROMO CODES
+-----------
+No codes have been created yet. Add them in the Creator Dashboard if your experience supports them, then replace the placeholder line in the description above with the real codes and their rewards.
+
+
+NOTES
+-----
+• Description length: about 890 characters. Check it against the Creator Dashboard limit before pasting.
+• Art: icon.png (1024×1024) and thumbnail.png (1920×1080) are in the same bundle.

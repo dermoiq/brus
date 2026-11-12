@@ -1,5 +1,7 @@
 *.rbxl
 *.rbxlx
+# Prebuilt place for opening in Studio without Rojo (rebuild after changing src/).
+!/CrystalRush.rbxl
 *.rbxl.lock
 *.rbxlx.lock
 sourcemap.json

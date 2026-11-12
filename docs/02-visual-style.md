@@ -66,6 +66,8 @@ Use one rule to decide which tool to use:
 
 ### 2a. MaterialVariant workflow (environment)
 
+> The shipped world is built from Roblox's built-in PBR materials and terrain, so it's textured out of the box. When you create MaterialVariants with the names in the table below, `WorldBuilder` applies them to matching surfaces automatically the next time the world is built.
+
 1. **View → Material Manager** (this edits `MaterialService`).
 2. Pick a base material (e.g. *Rock*) → **Create Material Variant**. Name it with a zone prefix (`Grotto_MossRock`).
 3. Assign maps: **ColorMap** (albedo, sRGB), **NormalMap** (OpenGL / +Y green), **RoughnessMap**, **MetalnessMap**. Use the 1024×1024 maximum for hero surfaces.
@@ -101,7 +103,7 @@ Suggested variant set:
 
 ### 2c. Dropping your art into the code (no code changes needed)
 
-- **Pickaxes:** create a `Tool` named after the item Id (e.g. `IronPick`) under `ReplicatedStorage/Assets/Items`. Put a MeshPart `Handle` inside it plus any extra MeshParts welded to it with WeldConstraints, and set the Tool's `Grip`. `EquipService` clones it automatically instead of the greybox pick.
+- **Pickaxes:** create a `Tool` named after the item Id (e.g. `IronPick`) under `ReplicatedStorage/Assets/Items`. Put a MeshPart `Handle` inside it plus any extra MeshParts welded to it with WeldConstraints, and set the Tool's `Grip`. `EquipService` clones it automatically instead of the procedural `PickaxeBuilder` model.
 - **Crystal nodes:** a Model (set `PrimaryPart`) of MeshParts with SurfaceAppearance and emissive veins, placed in `Workspace/Zones/<ZoneId>/Nodes`, **tagged `CrystalNode`**. Add a PointLight in the crystal's color.
 - **Gates:** any Part/Model tagged `ZoneGate` with a `Zone` attribute.
 
