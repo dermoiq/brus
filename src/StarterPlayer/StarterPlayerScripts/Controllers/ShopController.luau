@@ -1,15 +1,17 @@
 --!strict
--- Data-driven shop window: every upgrade, pickaxe and zone in the shared config gets an entry
--- automatically. Opened from the HUD button or the Upgrade Station's ProximityPrompt.
+-- Data-driven shop window: every upgrade, pickaxe, zone and aura in the shared config gets an entry
+-- automatically. Opened from the HUD, the Upgrade Station and the Rebirth Altar.
 
+local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage.Shared
+local Auras = require(Shared.Config.Auras)
 local Format = require(Shared.Format)
 local Formulas = require(Shared.Formulas)
 local Items = require(Shared.Config.Items)
-local Progression = require(Shared.Config.Progression)
+local Rebirths = require(Shared.Config.Rebirths)
 local Signal = require(Shared.Signal)
 local Types = require(Shared.Types)
 local Upgrades = require(Shared.Config.Upgrades)
@@ -17,15 +19,18 @@ local Zones = require(Shared.Config.Zones)
 
 local DataController = require(script.Parent.DataController)
 local HudController = require(script.Parent.HudController)
+local StoreController = require(script.Parent.StoreController)
 local UIKit = require(script.Parent.Parent.UI.UIKit)
 local UIRegistry = require(script.Parent.Parent.UI.UIRegistry)
 
 local Remotes = ReplicatedStorage.Remotes
 local Colors = UIKit.Colors
+local player = Players.LocalPlayer
 
 type PlayerData = Types.PlayerData
+type Perks = Types.Perks
 
-local TABS = { "Upgrades", "Pickaxes", "Zones", "Rebirth" }
+local TABS = { "Upgrades", "Pickaxes", "Zones", "Rebirth", "Auras" }
 
 local ShopController = {
 	Opened = Signal.new(),
@@ -36,7 +41,7 @@ local window: Frame
 local body: Frame
 local pages: { [string]: ScrollingFrame } = {}
 local tabButtons: { [string]: TextButton } = {}
-local refreshers: { (PlayerData) -> () } = {}
+local refreshers: { (PlayerData, Perks) -> () } = {}
 local isOpen = false
 local busy = false
 
@@ -60,6 +65,10 @@ end
 
 local function priceButton(button: TextButton, price: number, affordable: boolean)
 	UIKit.SetButton(button, "💎 " .. Format.Abbreviate(price), if affordable then Colors.Green else Colors.Grey)
+end
+
+local function toggleButton(button: TextButton, label: string, on: boolean, onColor: Color3)
+	UIKit.SetButton(button, `{label}: {if on then "ON" else "OFF"}`, if on then onColor else Colors.Grey)
 end
 
 -- One row: [icon] title / subtitle ............ [button]
@@ -97,12 +106,14 @@ local function makeEntry(
 		Size = UDim2.new(1, -250, 0, 30),
 		Position = UDim2.fromOffset(80, 10),
 		Text = "",
+		RichText = true,
 		Parent = row,
 	})
 	local subtitle = UIKit.Label({
 		Size = UDim2.new(1, -250, 0, 24),
 		Position = UDim2.fromOffset(80, 42),
 		Text = "",
+		RichText = true,
 		Font = UIKit.Fonts.Body,
 		TextColor3 = Colors.Muted,
 		Parent = row,
@@ -136,24 +147,57 @@ local function makePage(name: string): ScrollingFrame
 	return page
 end
 
+local function hex(color: Color3): string
+	return "#" .. color:ToHex()
+end
+
+local function requirementText(rebirthRequired: number?, gamepass: string?): string
+	if gamepass then
+		return "👑 " .. gamepass
+	end
+	return `🔒 REBIRTH {rebirthRequired or 0}`
+end
+
 local function buildUpgrades()
 	local page = makePage("Upgrades")
 
-	local autoButton =
-		UIKit.Button({ Size = UDim2.new(1, -10, 0, 44), LayoutOrder = 0, Parent = page }, "", Colors.Grey)
-	autoButton.Activated:Connect(function()
+	local toggles = UIKit.Create("Frame", {
+		Size = UDim2.new(1, -10, 0, 44),
+		BackgroundTransparency = 1,
+		LayoutOrder = 0,
+		Parent = page,
+	})
+	local autoUpgrade = UIKit.Button({ Size = UDim2.new(0.5, -5, 1, 0), Parent = toggles }, "", Colors.Grey)
+	local autoMine = UIKit.Button({
+		Size = UDim2.new(0.5, -5, 1, 0),
+		Position = UDim2.new(0.5, 5, 0, 0),
+		Parent = toggles,
+	}, "", Colors.Grey)
+	autoUpgrade.Activated:Connect(function()
 		local data = DataController.Get()
 		if data then
 			Remotes.SetSetting:FireServer("AutoUpgrade", not data.Settings.AutoUpgrade)
 		end
 	end)
-	table.insert(refreshers, function(data)
-		local on = data.Settings.AutoUpgrade
-		UIKit.SetButton(
-			autoButton,
-			if on then "🤖 AUTO-UPGRADE: ON" else "🤖 AUTO-UPGRADE: OFF",
-			if on then Colors.Blue else Colors.Grey
-		)
+	autoMine.Activated:Connect(function()
+		local data = DataController.Get()
+		if not data then
+			return
+		end
+		if Formulas.Perks(player).AutoMine then
+			Remotes.SetSetting:FireServer("AutoMine", not data.Settings.AutoMine)
+		else
+			ShopController.Close()
+			StoreController.Open()
+		end
+	end)
+	table.insert(refreshers, function(data, perks)
+		toggleButton(autoUpgrade, "🤖 AUTO-UPGRADE", data.Settings.AutoUpgrade, Colors.Blue)
+		if perks.AutoMine then
+			toggleButton(autoMine, "⛏ AUTO-MINE", data.Settings.AutoMine, Colors.Blue)
+		else
+			UIKit.SetButton(autoMine, "🔒 AUTO-MINE (Store)", Colors.Grey)
+		end
 	end)
 
 	for _, def in Upgrades.List do
@@ -162,14 +206,13 @@ local function buildUpgrades()
 		button.Activated:Connect(function()
 			purchase("Upgrade", def.Id)
 		end)
-		table.insert(refreshers, function(data)
+		table.insert(refreshers, function(data, perks)
 			local level = Formulas.UpgradeLevel(data, def.Id)
 			title.Text = `{def.Name}  <font color="#C8BEE6">Lv. {level}/{def.MaxLevel}</font>`
-			title.RichText = true
 			local current = if def.Id == "GemMultiplier"
-				then Format.Multiplier(Formulas.Multiplier(data))
+				then Format.Multiplier(Formulas.Multiplier(data, perks))
 				elseif def.Id == "SwingSpeed" then string.format("%.2fs", Formulas.Cooldown(data))
-				else Format.Percent(Formulas.CritChance(data))
+				else Format.Percent(Formulas.CritChance(data, perks))
 			subtitle.Text = `{def.Description}  (now {current})`
 			if level >= def.MaxLevel then
 				UIKit.SetButton(button, "MAXED", Colors.Gold)
@@ -185,27 +228,35 @@ local function buildPickaxes()
 	local page = makePage("Pickaxes")
 	for _, def in Items.List do
 		local title, subtitle, button = makeEntry(page, def.Order, "⛏", def.Color)
+		local rarityColor = Items.Rarities[def.Rarity] or Colors.Muted
 		title.Text = def.Name
+		subtitle.Text = `<font color="{hex(rarityColor)}">{def.Rarity}</font>  •  Power {Format.Abbreviate(def.Power)}  •  +{def.WalkSpeedBonus} Speed`
+		local exclusive = def.RebirthRequired ~= nil or def.Gamepass ~= nil
 		button.Activated:Connect(function()
 			local data = DataController.Get()
 			if not data then
 				return
 			end
-			if data.OwnedItems[def.Id] then
-				Remotes.Equip:FireServer(def.Id)
-			else
+			if Formulas.OwnsItem(data, def, Formulas.Perks(player)) then
+				Remotes.Equip:FireServer("Item", def.Id)
+			elseif def.Gamepass then
+				ShopController.Close()
+				StoreController.Open()
+			elseif not exclusive then
 				purchase("Item", def.Id)
 			end
 		end)
-		table.insert(refreshers, function(data)
-			local rarityColor = Items.Rarities[def.Rarity] or Colors.Muted
-			subtitle.RichText = true
-			subtitle.Text =
-				`<font color="#{rarityColor:ToHex()}">{def.Rarity}</font>  •  Power {def.Power}  •  +{def.WalkSpeedBonus} Speed`
-			if data.EquippedItem == def.Id then
+		table.insert(refreshers, function(data, perks)
+			if Formulas.EquippedItem(data, perks).Id == def.Id then
 				UIKit.SetButton(button, "EQUIPPED", Colors.Grey)
-			elseif data.OwnedItems[def.Id] then
+			elseif Formulas.OwnsItem(data, def, perks) then
 				UIKit.SetButton(button, "EQUIP", Colors.Blue)
+			elseif exclusive then
+				UIKit.SetButton(
+					button,
+					requirementText(def.RebirthRequired, def.Gamepass),
+					if def.Gamepass then Colors.Gold else Colors.Grey
+				)
 			else
 				priceButton(button, def.Price, data.Gems >= def.Price)
 			end
@@ -218,7 +269,7 @@ local function buildZones()
 	for _, def in Zones.List do
 		local title, subtitle, button = makeEntry(page, def.Order, "🗺", def.CrystalColor)
 		title.Text = def.Name
-		subtitle.Text = `Crystals worth {def.NodeValue}x  •  {def.XPPerHit} XP per hit`
+		subtitle.Text = `Crystals worth {Format.Abbreviate(def.NodeValue)}x  •  {def.XPPerHit} XP per hit`
 		button.Activated:Connect(function()
 			purchase("Zone", def.Id)
 		end)
@@ -235,30 +286,63 @@ local function buildZones()
 	end
 end
 
+-- The next rebirth-exclusive pickaxe or aura, for the "next unlock" teaser.
+local function nextRebirthReward(rebirths: number): (string?, number?)
+	local bestName, bestNeed = nil, math.huge
+	for _, def in Items.List do
+		local need = def.RebirthRequired
+		if need and need > rebirths and need < bestNeed then
+			bestName, bestNeed = def.Name, need
+		end
+	end
+	for _, def in Auras.List do
+		local need = def.RebirthRequired
+		if need and need > rebirths and need < bestNeed then
+			bestName, bestNeed = def.Name, need
+		end
+	end
+	return bestName, if bestName then bestNeed else nil
+end
+
 local function buildRebirth()
 	local page = makePage("Rebirth")
 	local panel = UIKit.Create("Frame", {
-		Size = UDim2.new(1, -10, 0, 270),
+		Size = UDim2.new(1, -10, 0, 330),
 		BackgroundColor3 = Colors.Card,
 		BorderSizePixel = 0,
 		Parent = page,
 	}, { UIKit.Corner(14), UIKit.Padding(16) })
 
-	local heading = UIKit.Label({ Size = UDim2.new(1, 0, 0, 40), TextColor3 = Colors.Pink, Text = "", Parent = panel })
-	UIKit.Label({
-		Size = UDim2.new(1, 0, 0, 48),
-		Position = UDim2.fromOffset(0, 46),
+	local heading = UIKit.Label({ Size = UDim2.new(1, 0, 0, 38), Text = "", RichText = true, Parent = panel })
+	local rankLine = UIKit.Label({
+		Size = UDim2.new(1, 0, 0, 24),
+		Position = UDim2.fromOffset(0, 40),
 		Font = UIKit.Fonts.Body,
+		Text = "",
+		RichText = true,
 		TextColor3 = Colors.Muted,
-		TextWrapped = true,
-		Text = "Resets your Gems and upgrades. Keeps pickaxes, zones and level.",
 		Parent = panel,
 	})
-	local bonus =
-		UIKit.Label({ Size = UDim2.new(1, 0, 0, 32), Position = UDim2.fromOffset(0, 100), Text = "", Parent = panel })
+	UIKit.Label({
+		Size = UDim2.new(1, 0, 0, 22),
+		Position = UDim2.fromOffset(0, 66),
+		Font = UIKit.Fonts.Body,
+		TextColor3 = Colors.Muted,
+		Text = "Resets Gems, upgrades and shop pickaxes. Keeps zones, level, exclusive pickaxes and auras.",
+		Parent = panel,
+	})
+	local bonus = UIKit.Label({ Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 94), Text = "", Parent = panel })
+	local teaser = UIKit.Label({
+		Size = UDim2.new(1, 0, 0, 22),
+		Position = UDim2.fromOffset(0, 126),
+		Font = UIKit.Fonts.Body,
+		TextColor3 = Colors.Gold,
+		Text = "",
+		Parent = panel,
+	})
 	local bar = UIKit.Create("Frame", {
 		Size = UDim2.new(1, 0, 0, 18),
-		Position = UDim2.fromOffset(0, 144),
+		Position = UDim2.fromOffset(0, 156),
 		BackgroundColor3 = Colors.Outline,
 		BorderSizePixel = 0,
 		Parent = panel,
@@ -270,27 +354,83 @@ local function buildRebirth()
 		Parent = bar,
 	}, { UIKit.Corner(9), UIKit.Gradient(Colors.Pink, Colors.Accent) })
 	local button = UIKit.Button({
-		Size = UDim2.new(1, 0, 0, 60),
-		Position = UDim2.fromOffset(0, 176),
+		Size = UDim2.new(1, 0, 0, 58),
+		Position = UDim2.fromOffset(0, 186),
 		Parent = panel,
 	}, "", Colors.Pink)
 	button.Activated:Connect(function()
 		purchase("Rebirth", nil)
 	end)
+	local autoRebirth = UIKit.Button({
+		Size = UDim2.new(1, 0, 0, 42),
+		Position = UDim2.fromOffset(0, 252),
+		Parent = panel,
+	}, "", Colors.Grey)
+	autoRebirth.Activated:Connect(function()
+		local data = DataController.Get()
+		if data and data.Rebirths >= Rebirths.AutoRebirthUnlock then
+			Remotes.SetSetting:FireServer("AutoRebirth", not data.Settings.AutoRebirth)
+		end
+	end)
 
 	table.insert(refreshers, function(data)
 		local cost = Formulas.RebirthCost(data.Rebirths)
-		heading.Text = `Rebirth #{data.Rebirths + 1}`
-		local now = 1 + data.Rebirths * Progression.RebirthBonus
-		local nextBonus = now + Progression.RebirthBonus
-		bonus.Text = `Rebirth Gem bonus: {Format.Multiplier(now)} → {Format.Multiplier(nextBonus)}`
+		local rank, _, nextRank = Formulas.RebirthRank(data.Rebirths)
+		heading.Text = `Rebirth #{data.Rebirths + 1}   <font color="{hex(rank.Color)}">{rank.Name}</font>`
+		rankLine.Text = if nextRank
+			then `Next rank: <font color="{hex(nextRank.Color)}">{nextRank.Name}</font> at {nextRank.Threshold} rebirths`
+			else "You've reached the highest rank. Rebirths keep multiplying forever!"
+		local now = Formulas.RebirthMultiplier(data.Rebirths)
+		local after = Formulas.RebirthMultiplier(data.Rebirths + 1)
+		bonus.Text = `Rebirth Gem bonus: {Format.Multiplier(now)} → {Format.Multiplier(after)}`
+		local rewardName, rewardAt = nextRebirthReward(data.Rebirths)
+		teaser.Text = if rewardName then `🎁 Next unlock: {rewardName} at {rewardAt} rebirths` else ""
 		fill.Size = UDim2.fromScale(math.clamp(data.Gems / cost, 0, 1), 1)
 		UIKit.SetButton(
 			button,
 			`🔁 REBIRTH  (💎 {Format.Abbreviate(cost)})`,
 			if data.Gems >= cost then Colors.Pink else Colors.Grey
 		)
+		if data.Rebirths >= Rebirths.AutoRebirthUnlock then
+			toggleButton(autoRebirth, "♻ AUTO-REBIRTH", data.Settings.AutoRebirth, Colors.Pink)
+		else
+			UIKit.SetButton(autoRebirth, `🔒 AUTO-REBIRTH (unlocks at {Rebirths.AutoRebirthUnlock} rebirths)`, Colors.Grey)
+		end
 	end)
+end
+
+local function buildAuras()
+	local page = makePage("Auras")
+	for _, def in Auras.List do
+		local title, subtitle, button = makeEntry(page, def.Order, "✨", def.Color)
+		title.Text = def.Name
+		subtitle.Text = def.Description
+		button.Activated:Connect(function()
+			local data = DataController.Get()
+			if not data then
+				return
+			end
+			if Formulas.OwnsAura(data, def, Formulas.Perks(player)) then
+				Remotes.Equip:FireServer("Aura", def.Id)
+			elseif def.Gamepass then
+				ShopController.Close()
+				StoreController.Open()
+			end
+		end)
+		table.insert(refreshers, function(data, perks)
+			if Formulas.EquippedAura(data, perks).Id == def.Id then
+				UIKit.SetButton(button, "EQUIPPED", Colors.Grey)
+			elseif Formulas.OwnsAura(data, def, perks) then
+				UIKit.SetButton(button, "EQUIP", Colors.Blue)
+			else
+				UIKit.SetButton(
+					button,
+					requirementText(def.RebirthRequired, def.Gamepass),
+					if def.Gamepass then Colors.Gold else Colors.Grey
+				)
+			end
+		end)
+	end
 end
 
 local function selectTab(name: string)
@@ -309,7 +449,7 @@ local function build()
 		Name = "Window",
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.52),
-		Size = UDim2.fromOffset(680, 480),
+		Size = UDim2.fromOffset(720, 500),
 		BackgroundTransparency = 1,
 		Visible = false,
 		Parent = gui,
@@ -349,7 +489,7 @@ local function build()
 	})
 	for index, name in TABS do
 		local button = UIKit.Button({
-			Size = UDim2.new(0.25, -6, 1, 0),
+			Size = UDim2.new(1 / #TABS, -7, 1, 0),
 			LayoutOrder = index,
 			Parent = tabRow,
 		}, name, Colors.Card)
@@ -363,7 +503,19 @@ local function build()
 	buildPickaxes()
 	buildZones()
 	buildRebirth()
+	buildAuras()
 	selectTab("Upgrades")
+end
+
+local function refresh()
+	local data = DataController.Get()
+	if not data then
+		return
+	end
+	local perks = Formulas.Perks(player)
+	for _, refreshEntry in refreshers do
+		refreshEntry(data, perks)
+	end
 end
 
 function ShopController.IsOpen(): boolean
@@ -373,6 +525,9 @@ end
 function ShopController.Open(tab: string?)
 	if tab then
 		selectTab(tab)
+	end
+	if StoreController.IsOpen() then
+		StoreController.Close()
 	end
 	if isOpen then
 		return
@@ -394,11 +549,10 @@ end
 
 function ShopController.Start()
 	build()
-	DataController.Observe(function(data)
-		for _, refresh in refreshers do
-			refresh(data)
-		end
+	DataController.Observe(function()
+		refresh()
 	end)
+	player.AttributeChanged:Connect(refresh)
 
 	HudController.ShopPressed:Connect(function()
 		if isOpen then
@@ -410,9 +564,12 @@ function ShopController.Start()
 	HudController.RebirthPressed:Connect(function()
 		ShopController.Open("Rebirth")
 	end)
+	StoreController.Opened:Connect(ShopController.Close)
 	ProximityPromptService.PromptTriggered:Connect(function(prompt)
 		if prompt:GetAttribute("OpensShop") then
 			ShopController.Open("Upgrades")
+		elseif prompt:GetAttribute("OpensRebirth") then
+			ShopController.Open("Rebirth")
 		end
 	end)
 end
