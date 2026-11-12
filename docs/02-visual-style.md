@@ -101,7 +101,7 @@ Suggested variant set:
 
 ### 2c. Dropping your art into the code (no code changes needed)
 
-- **Pickaxes:** create a `Tool` named after the item Id (e.g. `IronPick`) under `ReplicatedStorage/Assets/Items`. Put a MeshPart `Handle` inside it plus any extra MeshParts welded to it with WeldConstraints, and set the Tool's `Grip`. `EquipService` clones it automatically instead of the greybox pick.
+- **Pickaxes:** create a `Tool` named after the item Id (e.g. `IronPick`) under `ReplicatedStorage/Assets/Items`. Put a MeshPart `Handle` inside it plus any extra MeshParts welded to it with WeldConstraints, and set the Tool's `Grip`. `EquipService` clones it automatically instead of the procedural `PickaxeBuilder` model.
 - **Crystal nodes:** a Model (set `PrimaryPart`) of MeshParts with SurfaceAppearance and emissive veins, placed in `Workspace/Zones/<ZoneId>/Nodes`, **tagged `CrystalNode`**. Add a PointLight in the crystal's color.
 - **Gates:** any Part/Model tagged `ZoneGate` with a `Zone` attribute.
 
