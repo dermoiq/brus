@@ -73,7 +73,7 @@ local function reconcile(target: { [any]: any }, template: { [any]: any })
 end
 
 local function migrate(data: PlayerData)
-	-- Example: if data.Version < 2 then <transform> data.Version = 2 end
+	-- reconcile() already adds new fields; transform changed ones here, e.g. `if data.Version < 3 then ... end`.
 	data.Version = Progression.Template.Version
 end
 
@@ -234,6 +234,15 @@ function DataService.WaitForData(player: Player, timeout: number): PlayerData?
 		task.wait(0.1)
 	end
 	return DataService.Get(player)
+end
+
+-- Saves immediately (used before acknowledging Robux purchases). True when saved or saving is disabled.
+function DataService.SaveNow(player: Player): boolean
+	local profile = profiles[player]
+	if not profile then
+		return false
+	end
+	return saveAsync(player, profile, false)
 end
 
 function DataService.Start()
